@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Flappy Date Bites</title>
+  <style>
+    :root{--bg1:#87CEEB;--bg2:#6CC5D9}
+    html,body{height:100%;margin:0}
+    body{display:flex;align-items:center;justify-content:center;background:linear-gradient(var(--bg1),var(--bg2));font-family:Inter,system-ui,Arial}
+    #gameWrapper{width:100%;max-width:420px}
+    canvas{width:100%;height:auto;display:block;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.25);background:transparent}
+    .overlay{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:rgba(0,0,0,0.6);color:#fff;padding:8px 12px;border-radius:999px;font-weight:600}
+    .topbar{position:fixed;left:50%;transform:translateX(-50%);top:14px;background:rgba(255,255,255,0.95);padding:6px 12px;border-radius:999px;font-weight:700}
+    .btn{display:inline-block;padding:6px 10px;border-radius:8px;background:#fff;color:#333;margin-left:8px;text-decoration:none}
+  </style>
+</head>
+<body>
+  <div id="gameWrapper">
+    <canvas id="gameCanvas" width="420" height="640"></canvas>
+  </div>
+  <div class="topbar">Farmley x Blue Tokai · <span id="scoreDisplay">Score: 0</span><a id="restartBtn" class="btn" href="#">Restart</a></div>
+  <div class="overlay" id="tapHint">Tap / Space to flap</div>
+
+  <script>
+    // --- CONFIG ---
+    const CANVAS_W = 420;
+    const CANVAS_H = 640;
+    const BIRD_X = Math.round(CANVAS_W * 0.2);
+    const PIPE_WIDTH = 78;
+    const PIPE_GAP = 250; // fixed gap height
+    const PIPE_SPEED = 2.8;
+    const GRAVITY = 0.45;
+    const JUMP = -9;
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // sprite (trimmed image you already generated)
+    const sprite = new Image();
+    sprite.src = 'datebite.png';
+
+    // game state
+    let bird = { x: BIRD_X, y: CANVAS_H * 0.35, w: 84, h: 126, vy: 0, rotation: 0 };
+    let pipes = []; // each: {x, top}
+    let frame = 0;
+    let score = 0;
+    let state = 'ready'; // ready | playing | over
+
+    // Utility: reset game
+    function reset() {
+      bird.y = CANVAS_H * 0.35; bird.vy = 0; bird.rotation = 0;
+      pipes = []; frame = 0; score = 0; state = 'ready';
+      document.getElementById('tapHint').innerText = 'Tap / Space to flap';
+      updateScore();
+    }
+
+    function updateScore(){ document.getElementById('scoreDisplay').innerText = 'Score: ' + score; }
+
+    // Spawn a new pipe pair with valid top so gap is inside canvas
+    function spawnPipe(){
+      const minTop = 40;
+      const maxTop = CANVAS_H - PIPE_GAP - 120; // leave room for ground
+      const top = Math.floor(Math.random() * (maxTop - minTop + 1)) + minTop;
+      pipes.push({ x: CANVAS_W, top: top, passed: false });
+    }
+
+    function update() {
+      frame++;
+
+      if(state === 'playing'){
+        // bird physics
+        bird.vy += GRAVITY;
+        bird.y += bird.vy;
+        bird.rotation = Math.max(-0.6, Math.min(0.9, bird.vy / 10));
+
+        // spawn pipes periodically
+        if(frame % 110 === 0) spawnPipe();
+
+        // move pipes
+        for(let i = pipes.length - 1; i >= 0; i--){
+          pipes[i].x -= PIPE_SPEED;
+          // score when passed
+          if(!pipes[i].passed && (pipes[i].x + PIPE_WIDTH) < bird.x){ pipes[i].passed = true; score++; updateScore(); }
+          // remove off-screen
+          if(pipes[i].x + PIPE_WIDTH < -20) pipes.splice(i,1);
+        }
+
+        // collisions with ground and ceiling
+        if(bird.y + bird.h >= CANVAS_H - 32) { state = 'over'; document.getElementById('tapHint').innerText = 'Game Over — Tap to Restart'; }
+        if(bird.y <= 0) { bird.y = 0; bird.vy = 0; }
+
+        // collision with pipes (AABB)
+        for(const p of pipes){
+          const bx1 = bird.x, by1 = bird.y, bx2 = bird.x + bird.w, by2 = bird.y + bird.h;
+          const topRect = { x: p.x, y: 0, w: PIPE_WIDTH, h: p.top };
+          const botRect = { x: p.x, y: p.top + PIPE_GAP, w: PIPE_WIDTH, h: CANVAS_H - (p.top + PIPE_GAP) };
+          if(rectOverlap(bx1,by1,bx2,by2, topRect.x, topRect.y, topRect.x + topRect.w, topRect.y + topRect.h) ||
+             rectOverlap(bx1,by1,bx2,by2, botRect.x, botRect.y, botRect.x + botRect.w, botRect.y + botRect.h)){
+            state = 'over'; document.getElementById('tapHint').innerText = 'Game Over — Tap to Restart';
+          }
+        }
+      }
+    }
+
+    function rectOverlap(a1,b1,a2,b2,c1,d1,c2,d2){ return !(a2 < c1 || a1 > c2 || b2 < d1 || b1 > d2); }
+
+    function draw() {
+      // logical canvas size
+      ctx.clearRect(0,0,CANVAS_W,CANVAS_H);
+
+      // background sky (optional subtle bands)
+      const grad = ctx.createLinearGradient(0,0,0,CANVAS_H);
+      grad.addColorStop(0, 'rgba(255,255,255,0.06)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.02)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+
+      // draw pipes as regular green pipes
+      ctx.fillStyle = '#2e8b3a'; // pipe body
+      pipes.forEach(p => {
+        // top pipe
+        ctx.fillRect(p.x, 0, PIPE_WIDTH, p.top);
+        // bottom pipe
+        ctx.fillRect(p.x, p.top + PIPE_GAP, PIPE_WIDTH, CANVAS_H - (p.top + PIPE_GAP) - 32);
+        // pipe rim (lighter)
+        ctx.fillStyle = '#3aa44b';
+        ctx.fillRect(p.x, p.top - 8, PIPE_WIDTH, 8);
+        ctx.fillRect(p.x, p.top + PIPE_GAP, PIPE_WIDTH, 8);
+        ctx.fillStyle = '#2e8b3a';
+      });
+
+      // ground strip
+      ctx.fillStyle = '#2f8b4a';
+      ctx.fillRect(0, CANVAS_H - 32, CANVAS_W, 32);
+
+      // draw bird (sprite). scale to bird.w/bird.h
+      if(sprite.complete && sprite.naturalWidth !== 0){
+        ctx.save();
+        ctx.translate(bird.x + bird.w/2, bird.y + bird.h/2);
+        ctx.rotate(bird.rotation);
+        ctx.drawImage(sprite, -bird.w/2, -bird.h/2, bird.w, bird.h);
+        ctx.restore();
+      } else {
+        // fallback box
+        ctx.fillStyle = '#fff'; ctx.fillRect(bird.x, bird.y, bird.w, bird.h);
+      }
+
+      // HUD score
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.font = '26px Arial'; ctx.fillText(score, CANVAS_W/2 - 8, 60);
+
+      if(state === 'over'){
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(40, CANVAS_H/2 - 60, CANVAS_W - 80, 120);
+        ctx.fillStyle = 'white'; ctx.font = '36px Arial'; ctx.fillText('Game Over', 120, CANVAS_H/2 - 10);
+        ctx.font = '18px Arial'; ctx.fillText('Tap / Space to restart', 120, CANVAS_H/2 + 20);
+      }
+    }
+
+    function loop(){ update(); draw(); requestAnimationFrame(loop); }
+
+    // Controls
+    function flap(){
+      if(state === 'ready') state = 'playing';
+      if(state === 'over'){ reset(); state = 'playing'; return; }
+      bird.vy = JUMP;
+    }
+
+    window.addEventListener('keydown', (e)=>{ if(e.code === 'Space') flap(); });
+    canvas.addEventListener('touchstart', (e)=>{ e.preventDefault(); flap(); }, {passive:false});
+    canvas.addEventListener('mousedown', (e)=>{ flap(); });
+
+    document.getElementById('restartBtn').addEventListener('click',(e)=>{ e.preventDefault(); reset(); });
+
+    // When sprite loads, adjust bird size if needed and start
+    sprite.onload = ()=>{
+      const asp = sprite.naturalWidth / sprite.naturalHeight;
+      bird.w = 77;
+      bird.h = Math.round(bird.w / asp) + 0;
+      reset(); loop();
+    };
+
+    sprite.onerror = ()=>{ console.warn('Sprite failed to load. Make sure datebites_sprite.png is in the same folder.'); reset(); loop(); };
+
+    // initialize if sprite already cached
+    if(sprite.complete){ sprite.onload(); }
+  </script>
+</body>
+</html>
